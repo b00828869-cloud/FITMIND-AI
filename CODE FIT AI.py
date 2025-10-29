@@ -1,164 +1,142 @@
-import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
 import math
+import matplotlib.pyplot as plt
 
-st.set_page_config(
-    page_title="FitMind AI - BMI Calculator",
-    page_icon="💪",
-    layout="centered"
-)
+def draw_gauge(bmi_value: float):
+    """
+    Draws the BMI gauge with 5 yellow segments and a purple needle
+    pointing to the current bmi_value.
+    Returns a matplotlib figure you can send to st.pyplot(fig).
+    """
 
-st.title("FitMind AI - BMI Calculator 🧮")
+    # --- Config couleurs / style ---
+    seg_color = "#F4C542"  # ton jaune-or
+    needle_color = "#2E0A78"  # ton violet
+    text_color = "#1a1a1a"
 
-weight = st.number_input("Enter your weight (kg):", min_value=30.0, max_value=250.0, step=0.5, value=75.0)
-height = st.number_input("Enter your height (m):", min_value=1.2, max_value=2.2, step=0.01, value=1.75)
-
-if st.button("Calculate BMI"):
-    bmi = weight / (height ** 2)
-
-    st.write(f"Your BMI is **{bmi:.1f}**")
-
-    # Determine label + color box message
-    if bmi < 18.5:
-        label = "Underweight"
-        box_func = st.warning
-    elif bmi < 25:
-        label = "Normal weight"
-        box_func = st.success
-    elif bmi < 30:
-        label = "Overweight"
-        box_func = st.info
-    elif bmi < 40:
-        label = "Obese"
-        box_func = st.error
-    else:
-        label = "Severely Obese"
-        box_func = st.error
-
-    box_func(label)
-
-    st.markdown("---")
-    st.subheader("BMI Gauge")
-
-    # ==============================
-    # 1. Définition des zones visuelles
-    # ==============================
-    # On crée un cadran de -90° à +90°
-    # Puis on attribue des sous-plages d'angles pour chaque zone BMI.
-    #
-    # Mapping BMI -> angle:
-    #   BMI 10  => -90°
-    #   BMI 18.5 => ~ -40°
-    #   BMI 25  => ~ -5°
-    #   BMI 30  => ~ +25°
-    #   BMI 40  => ~ +70°
-    #   BMI 50  => +90°
-    #
-    # On définit les bornes BMI qu'on veut afficher:
+    # bornes globales pour l'échelle angle
     bmi_min_disp = 10
     bmi_max_disp = 50
 
-    # Les segments (bmi_low, bmi_high, color, label_display)
+    # définitions des segments visuels
+    # (bmi_low, bmi_high, label_line1, label_line2)
     segments = [
-        (10,   18.5, "#2c6fd6", "UNDERWEIGHT\n< 18.5"),
-        (18.5, 25.0, "#00b050", "NORMAL\n18.5 - 24.9"),
-        (25.0, 30.0, "#ffc000", "OVERWEIGHT\n25.0 - 29.9"),
-        (30.0, 40.0, "#ed7d31", "OBESE\n30.0 - 39.9"),
-        (40.0, 50.0, "#c00000", "SEVERELY OBESE\n≥ 40.0"),
+        (10,   18.5, "UNDERWEIGHT", "< 18.5"),
+        (18.5, 25.0, "NORMAL", "18.5 – 24.9"),
+        (25.0, 30.0, "OVERWEIGHT", "25.0 – 29.9"),
+        (30.0, 40.0, "OBESE", "30.0 – 39.9"),
+        (40.0, 50.0, "SEVERELY\nOBESE", "≥ 40.0"),
     ]
 
-    # Fonction utilitaire: convertit un BMI en angle radians sur le demi-cercle
-    # -90° = gauche, +90° = droite
+    # convertit un BMI en angle radians [-90°, +90°]
     def bmi_to_angle(b):
-        # clamp
         b = max(bmi_min_disp, min(b, bmi_max_disp))
-        ratio = (b - bmi_min_disp) / (bmi_max_disp - bmi_min_disp)  # 0 -> 1
+        ratio = (b - bmi_min_disp) / (bmi_max_disp - bmi_min_disp)  # 0..1
         angle_deg = -90 + ratio * 180
         return math.radians(angle_deg)
 
-    # ==============================
-    # 2. Dessin du cadran
-    # ==============================
     fig, ax = plt.subplots(figsize=(6, 3))
 
-    # Pour chaque segment, on dessine un "wedge" (secteur) coloré
-    for (b_low, b_high, color, text_label) in segments:
-        start_angle = bmi_to_angle(b_low)
-        end_angle   = bmi_to_angle(b_high)
+    # dessiner chaque segment comme une "couronne"
+    r_outer = 1.0     # rayon externe
+    r_inner = 0.55    # rayon interne pour donner l'effet donut
+    for (b_low, b_high, line1, line2) in segments:
+        start_a = bmi_to_angle(b_low)
+        end_a   = bmi_to_angle(b_high)
 
-        # On crée un ensemble de points entre start_angle et end_angle
-        angles = np.linspace(start_angle, end_angle, 50)
-        # rayon du cadran
-        r_outer = 1.0
-        r_inner = 0.45
+        # points du bord externe
+        angles_outer = np.linspace(start_a, end_a, 50)
+        x_outer = r_outer * np.cos(angles_outer)
+        y_outer = r_outer * np.sin(angles_outer)
 
-        # Polygone extérieur/intérieur pour remplir la zone
-        x_outer = r_outer * np.cos(angles)
-        y_outer = r_outer * np.sin(angles)
-        x_inner = r_inner * np.cos(angles[::-1])
-        y_inner = r_inner * np.sin(angles[::-1])
+        # points du bord interne (on part dans l'autre sens pour fermer le polygone)
+        angles_inner = np.linspace(end_a, start_a, 50)
+        x_inner = r_inner * np.cos(angles_inner)
+        y_inner = r_inner * np.sin(angles_inner)
 
         x_poly = np.concatenate([x_outer, x_inner])
         y_poly = np.concatenate([y_outer, y_inner])
 
-        ax.fill(x_poly, y_poly, color=color, edgecolor="white", linewidth=2)
+        ax.fill(
+            x_poly,
+            y_poly,
+            color=seg_color,
+            edgecolor="white",
+            linewidth=3,
+            zorder=1
+        )
 
-        # Position du label texte au milieu du segment
-        mid_angle = (start_angle + end_angle) / 2
-        x_text = 0.7 * np.cos(mid_angle)
-        y_text = 0.7 * np.sin(mid_angle)
+        # position du texte = angle milieu
+        mid_a = 0.5 * (start_a + end_a)
+        label_r = 0.8  # rayon du texte
+        x_text = label_r * np.cos(mid_a)
+        y_text = label_r * np.sin(mid_a)
+
+        # texte centré en 2 lignes (style powerpoint)
         ax.text(
             x_text,
             y_text,
-            text_label,
+            f"{line1}\n{line2}",
             ha="center",
             va="center",
-            fontsize=8,
-            color="white",
-            fontweight="bold"
+            fontsize=10,
+            color=text_color,
+            fontweight="bold",
+            zorder=2,
+            linespacing=1.2
         )
 
-    # ==============================
-    # 3. Aiguille
-    # ==============================
-    needle_angle = bmi_to_angle(bmi)
+    # dessiner l'aiguille
+    needle_angle = bmi_to_angle(bmi_value)
     needle_len = 0.9
     x_end = needle_len * np.cos(needle_angle)
     y_end = needle_len * np.sin(needle_angle)
 
-    # tige
     ax.plot(
         [0, x_end],
         [0, y_end],
-        color="black",
-        linewidth=3
+        color=needle_color,
+        linewidth=4,
+        zorder=3
     )
-    # base de l'aiguille
-    ax.scatter([0], [0], color="black", s=80, zorder=10, edgecolor="white", linewidth=1)
 
-    # ==============================
-    # 4. Style du cadran
-    # ==============================
+    # base ronde + rond blanc au centre (comme ton design)
+    ax.scatter(
+        [0],
+        [0],
+        color=needle_color,
+        s=500,
+        zorder=4,
+        edgecolor=needle_color,
+        linewidth=1
+    )
+    ax.scatter(
+        [0],
+        [0],
+        color="white",
+        s=150,
+        zorder=5,
+        edgecolor=needle_color,
+        linewidth=2
+    )
+
+    # style final du plot
     ax.set_aspect("equal")
-    ax.set_xlim(-1.1, 1.1)
-    ax.set_ylim(-0.2, 1.1)
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-0.3, 1.2)
     ax.axis("off")
 
-    # Texte global sous le cadran
+    # texte sous la jauge
     ax.text(
         0,
         -0.25,
-        f"BMI: {bmi:.1f} ({label})",
+        f"BMI: {bmi_value:.1f}",
         ha="center",
         va="center",
-        fontsize=12,
-        fontweight="bold"
+        fontsize=13,
+        fontweight="bold",
+        color=text_color
     )
 
-    st.pyplot(fig)
+    return fig
 
-    st.caption(
-        "This scale is a general health indicator. It does not account for muscle mass, age, or medical conditions. "
-        "Ask a professional if you have concerns."
-    )
