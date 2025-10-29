@@ -4,61 +4,70 @@ import math
 import matplotlib.pyplot as plt
 
 # ---------------------------------
-# Gauge drawing function
+# Gauge drawing (new geometry)
 # ---------------------------------
+
 def draw_gauge(bmi_value: float):
-    # Colors / style
+    """
+    Draw a 5-slice semicircle gauge (UNDERWEIGHT -> SEVERELY OBESE),
+    evenly spaced, centered above the needle, with a purple needle.
+    """
+
+    # Visual style
     seg_color = "#F4C542"      # gold / yellow
     needle_color = "#2E0A78"   # deep purple
-    text_color = "#1a1a1a"     # almost black
+    text_color = "#1a1a1a"     # near black
 
-    # BMI scale we'll map to angles
-    bmi_min_disp = 10
-    bmi_max_disp = 50
+    # We will draw an arc from -100° to +100°
+    start_deg = -100
+    end_deg = 100
 
-    # Segments definition (from left to right)
-    # (bmi_low, bmi_high, line1, line2)
-    segments = [
-        (10,   18.5, "UNDERWEIGHT", "< 18.5"),
-        (18.5, 25.0, "NORMAL", "18.5 – 24.9"),
-        (25.0, 30.0, "OVERWEIGHT", "25.0 – 29.9"),
-        (30.0, 40.0, "OBESE", "30.0 – 39.9"),
-        (40.0, 50.0, "SEVERELY\nOBESE", "≥ 40.0"),
+    # Define the 5 categories, in order from left to right
+    categories = [
+        ("UNDERWEIGHT", "< 18.5"),
+        ("NORMAL", "18.5 – 24.9"),
+        ("OVERWEIGHT", "25.0 – 29.9"),
+        ("OBESE", "30.0 – 39.9"),
+        ("SEVERELY\nOBESE", "≥ 40.0"),
     ]
 
-    # Map BMI value to angle in radians
-    # -90° (left) to +90° (right)
-    def bmi_to_angle(b):
-        b = max(bmi_min_disp, min(b, bmi_max_disp))
-        ratio = (b - bmi_min_disp) / (bmi_max_disp - bmi_min_disp)  # 0..1
-        angle_deg = -90 + ratio * 180
-        return math.radians(angle_deg)
+    n_segments = len(categories)
 
-    # Create figure
+    # We'll split the total arc evenly across the 5 segments
+    total_arc = end_deg - start_deg  # e.g. 200 degrees
+    arc_per_segment = total_arc / n_segments
+
+    # Helper: map bmi to needle angle
+    # We'll clamp BMI into [10, 50] then map that to [-100°, +100°]
+    def bmi_to_angle_deg(b):
+        b_clamped = max(10, min(50, b))
+        # 10  -> -100°
+        # 50  -> +100°
+        ratio = (b_clamped - 10) / (50 - 10)  # 0..1
+        return start_deg + ratio * (end_deg - start_deg)
+
+    # --- create figure
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    # Adjust vertical offset so the arc sits nicely above the needle
-    y_offset = 0.2
-    r_outer = 1.0
-    r_inner = 0.55
-    text_r = 0.8  # where to place labels inside each wedge
+    r_outer = 1.0    # outer radius of gauge band
+    r_inner = 0.55   # inner radius of gauge band
+    label_r = 0.8    # radius where we place text
+    y_offset = 0.0   # we keep center on (0,0) now so arc is symmetric
 
-    # Draw each wedge (segment)
-    for (b_low, b_high, line1, line2) in segments:
-        start_a = bmi_to_angle(b_low)
-        end_a   = bmi_to_angle(b_high)
+    # Draw each segment wedge
+    for i, (title, rng) in enumerate(categories):
+        seg_start_deg = start_deg + i * arc_per_segment
+        seg_end_deg   = start_deg + (i + 1) * arc_per_segment
 
-        # Outer boundary of the wedge
-        angles_outer = np.linspace(start_a, end_a, 60)
-        x_outer = r_outer * np.cos(angles_outer)
-        y_outer = r_outer * np.sin(angles_outer) + y_offset
+        # build the polygon of this wedge
+        thetas_outer = np.radians(np.linspace(seg_start_deg, seg_end_deg, 80))
+        x_outer = r_outer * np.cos(thetas_outer)
+        y_outer = r_outer * np.sin(thetas_outer) + y_offset
 
-        # Inner boundary of the wedge
-        angles_inner = np.linspace(end_a, start_a, 60)
-        x_inner = r_inner * np.cos(angles_inner)
-        y_inner = r_inner * np.sin(angles_inner) + y_offset
+        thetas_inner = np.radians(np.linspace(seg_end_deg, seg_start_deg, 80))
+        x_inner = r_inner * np.cos(thetas_inner)
+        y_inner = r_inner * np.sin(thetas_inner) + y_offset
 
-        # Build polygon
         x_poly = np.concatenate([x_outer, x_inner])
         y_poly = np.concatenate([y_outer, y_inner])
 
@@ -71,46 +80,46 @@ def draw_gauge(bmi_value: float):
             zorder=1
         )
 
-        # Put the label in the middle of the wedge
-        mid_a = 0.5 * (start_a + end_a)
-        x_text = text_r * np.cos(mid_a)
-        y_text = text_r * np.sin(mid_a) + y_offset
+        # middle angle of this wedge, for label placement
+        mid_deg = 0.5 * (seg_start_deg + seg_end_deg)
+        mid_rad = math.radians(mid_deg)
+        x_text = label_r * np.cos(mid_rad)
+        y_text = label_r * np.sin(mid_rad) + y_offset
 
-        # 2-line label (bold like your PowerPoint)
-        # "SEVERELY\nOBESE" already includes newline, so line1 can be multi-line
         ax.text(
             x_text,
             y_text,
-            f"{line1}\n{line2}",
+            f"{title}\n{rng}",
             ha="center",
             va="center",
             fontsize=11,
             color=text_color,
             fontweight="bold",
             zorder=2,
-            linespacing=1.15,
+            linespacing=1.15
         )
 
-    # Draw needle
-    needle_angle = bmi_to_angle(bmi_value)
+    # -------- needle --------
+    needle_deg = bmi_to_angle_deg(bmi_value)
+    needle_rad = math.radians(needle_deg)
+
     needle_len = 0.9
+    x_end = needle_len * np.cos(needle_rad)
+    y_end = needle_len * np.sin(needle_rad) + y_offset
 
-    x_end = needle_len * np.cos(needle_angle)
-    y_end = needle_len * np.sin(needle_angle) + y_offset
-
-    # needle line
+    # draw needle line
     ax.plot(
         [0, x_end],
-        [0 + y_offset, y_end],
+        [0, y_end],
         color=needle_color,
         linewidth=4,
         zorder=3
     )
 
-    # needle base (purple circle + white inner circle)
+    # draw needle base (purple circle + white circle)
     ax.scatter(
         [0],
-        [0 + y_offset],
+        [0],
         color=needle_color,
         s=500,
         zorder=4,
@@ -120,7 +129,7 @@ def draw_gauge(bmi_value: float):
 
     ax.scatter(
         [0],
-        [0 + y_offset],
+        [0],
         color="white",
         s=150,
         zorder=5,
@@ -128,10 +137,10 @@ def draw_gauge(bmi_value: float):
         linewidth=2
     )
 
-    # BMI text under the gauge
+    # "BMI: xx.x" label under the needle center
     ax.text(
         0,
-        -0.25 + y_offset,
+        -0.25,
         f"BMI: {bmi_value:.1f}",
         ha="center",
         va="center",
@@ -141,10 +150,11 @@ def draw_gauge(bmi_value: float):
         zorder=6
     )
 
-    # Clean figure style
+    # final styling
     ax.set_aspect("equal")
+    # the arc now spans 200°, so we want to see all of it nicely centered
     ax.set_xlim(-1.2, 1.2)
-    ax.set_ylim(-0.4 + y_offset, 1.3 + y_offset)
+    ax.set_ylim(-0.6, 1.1)
     ax.axis("off")
 
     return fig
@@ -160,14 +170,12 @@ st.set_page_config(
     layout="centered"
 )
 
-# Header / intro
 st.title("FitMind AI - BMI Calculator 💪")
 st.write(
     "Enter your weight and height to estimate your BMI, see your health category, "
     "and visualize it on the gauge."
 )
 
-# Inputs
 col1, col2 = st.columns(2)
 with col1:
     weight = st.number_input(
@@ -187,12 +195,11 @@ with col2:
     )
 
 if st.button("Calculate BMI"):
-    # Calculate BMI
     bmi = weight / (height ** 2)
 
     st.markdown(f"Your BMI is **{bmi:.1f}**")
 
-    # Category message
+    # determine category for the message box
     if bmi < 18.5:
         st.warning("UNDERWEIGHT (<18.5)")
         cat_label = "UNDERWEIGHT"
@@ -210,8 +217,8 @@ if st.button("Calculate BMI"):
         cat_label = "SEVERELY OBESE"
 
     st.divider()
-
     st.subheader("BMI Gauge")
+
     fig = draw_gauge(bmi)
     st.pyplot(fig)
 
