@@ -33,10 +33,11 @@ with col2:
     )
 
 def bmi_to_angle_deg(bmi):
-    # map BMI 10 -> -100°, 50 -> 100°
+    # Clamp BMI into [10, 50] so needle never goes out of range
     b = max(10, min(50, bmi))
+    # Map 10 -> -100°, 50 -> +100°
     ratio = (b - 10) / (50 - 10)  # 0..1
-    return -100 + ratio * 200     # [-100, 100]
+    return -100 + ratio * 200     # [-100, +100] degrees
 
 if st.button("Calculate BMI"):
     bmi = weight / (height ** 2)
@@ -65,25 +66,27 @@ if st.button("Calculate BMI"):
 
     angle = bmi_to_angle_deg(bmi)
 
-    # HTML + CSS + JS (D3)
-    # NOTE: we'll inline d3 from CDN
+    # ------- D3.js gauge HTML block -------
     gauge_html = f"""
     <html>
       <head>
         <script src="https://d3js.org/d3.v7.min.js"></script>
         <style>
           body {{
+            background-color: white;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: #1a1a1a;
           }}
+
           .segment-label {{
-            font-size: 12px;
+            font-size: 11px;
             fill: #1a1a1a;
             font-weight: 600;
             text-anchor: middle;
           }}
+
           .bmi-readout {{
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
             fill: #1a1a1a;
             text-anchor: middle;
@@ -91,50 +94,51 @@ if st.button("Calculate BMI"):
         </style>
       </head>
       <body>
-        <div id="gauge-container" style="width:400px; margin:0 auto;"></div>
+        <div id="gauge-container" style="width:500px; margin:0 auto;"></div>
 
         <script>
-          const width = 400;
-          const height = 240;
-          const outerR = 160;
-          const innerR = 100;
-          const centerX = width/2;
-          const centerY = 180;  // place center lower so gauge sits above
+          // SVG / layout config
+          const width = 500;
+          const height = 260;
+          const outerR = 180;      // outer radius of the gauge band
+          const innerR = 110;      // inner radius of the gauge band
+          const centerX = width / 2;
+          const centerY = 200;     // push gauge up/down visually
 
-          // arc spans from -100deg to +100deg
+          // Gauge covers -100° to +100°
           const startDeg = -100;
           const endDeg = 100;
 
-          // Our 5 categories (text shown in each slice)
+          // Our 5 slices across that arc, evenly spaced
           const segments = [
-            {{ name1: "UNDERWEIGHT", name2: "< 18.5" }},
-            {{ name1: "NORMAL", name2: "18.5 – 24.9" }},
-            {{ name1: "OVERWEIGHT", name2: "25.0 – 29.9" }},
-            {{ name1: "OBESE", name2: "30.0 – 39.9" }},
+            {{ name1: "UNDERWEIGHT",    name2: "< 18.5" }},
+            {{ name1: "NORMAL",         name2: "18.5 – 24.9" }},
+            {{ name1: "OVERWEIGHT",     name2: "25.0 – 29.9" }},
+            {{ name1: "OBESE",          name2: "30.0 – 39.9" }},
             {{ name1: "SEVERELY OBESE", name2: "≥ 40.0" }},
           ];
 
-          const totalArc = endDeg - startDeg;        // 200deg
-          const arcPerSeg = totalArc / segments.length; // 40deg each
+          const totalArc = endDeg - startDeg;             // 200 deg
+          const arcPerSeg = totalArc / segments.length;   // 40 deg each
 
+          // Create SVG
           const svg = d3.select("#gauge-container")
             .append("svg")
             .attr("width", width)
             .attr("height", height);
 
-          // group for gauge
           const g = svg.append("g");
 
-          // draw each colored wedge
+          // Draw each yellow wedge
           segments.forEach((seg, i) => {{
             const segStart = startDeg + i * arcPerSeg;
-            const segEnd = startDeg + (i+1) * arcPerSeg;
+            const segEnd   = startDeg + (i+1) * arcPerSeg;
 
             const arcGen = d3.arc()
               .innerRadius(innerR)
               .outerRadius(outerR)
-              .startAngle((segStart) * Math.PI/180)
-              .endAngle((segEnd) * Math.PI/180);
+              .startAngle(segStart * Math.PI/180)
+              .endAngle(segEnd * Math.PI/180);
 
             g.append("path")
               .attr("d", arcGen)
@@ -143,7 +147,7 @@ if st.button("Calculate BMI"):
               .attr("stroke-width", 4)
               .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-            // label position = middle of this slice
+            // Mid-angle for label placement
             const midDeg = (segStart + segEnd)/2;
             const midRad = midDeg * Math.PI/180;
             const labelR = (innerR + outerR)/2;
@@ -151,27 +155,28 @@ if st.button("Calculate BMI"):
             const lx = centerX + labelR * Math.cos(midRad);
             const ly = centerY + labelR * Math.sin(midRad);
 
+            // two-line label
             g.append("text")
               .attr("class", "segment-label")
               .attr("x", lx)
-              .attr("y", ly - 8) // a little up for line1
+              .attr("y", ly - 6)
               .text(seg.name1)
               .attr("text-anchor", "middle");
 
             g.append("text")
               .attr("class", "segment-label")
               .attr("x", lx)
-              .attr("y", ly + 10) // a little down for line2
+              .attr("y", ly + 10)
               .text(seg.name2)
               .attr("text-anchor", "middle");
           }});
 
-          // needle group
+          // Needle group at center
           const needleGroup = g.append("g")
             .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-          // triangle needle (pointing straight up initially, we'll rotate)
-          const needleLen = 120;
+          // Needle shape (triangle-ish)
+          const needleLen = 125;
           const needleWidth = 6;
           const needlePath = d3.path();
           needlePath.moveTo(0, 0);
@@ -184,7 +189,7 @@ if st.button("Calculate BMI"):
             .attr("d", needlePath.toString())
             .attr("fill", "#2E0A78");
 
-          // center purple circle
+          // Purple circle base
           needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
@@ -193,7 +198,7 @@ if st.button("Calculate BMI"):
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-          // inner white circle
+          // White inner circle
           needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
@@ -202,32 +207,31 @@ if st.button("Calculate BMI"):
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-          // BMI text below the needle center
+          // BMI text under gauge
           g.append("text")
             .attr("class", "bmi-readout")
             .attr("x", centerX)
             .attr("y", centerY + 40)
             .text("BMI: {bmi:.1f} ({cat_label})");
 
-          // animate needle to target angle
-          const targetAngle = {angle}; // degrees, from Python
+          // Animate needle from far left (-100deg) to target angle
+          const targetAngle = {angle};
 
           needle
-            .attr("transform", "rotate(-100)") // start from far left
+            .attr("transform", "rotate(-100)")
             .transition()
             .duration(800)
             .attr("transform", `rotate(${{targetAngle}})`);
-
-          // also rotate the purple circles group so they stay centered with needle?
-          // no: the base stays fixed. So we DON'T rotate needleGroup, only the needle path itself.
         </script>
       </body>
     </html>
     """
 
+    # Render the custom HTML/JS block inside Streamlit
     components.html(gauge_html, height=320)
 
     st.caption(
-        "Live gauge generated with D3.js. BMI is just an indicator and does not replace medical advice."
+        "This gauge is interactive (D3.js). BMI is only an indicator. "
+        "Muscle mass, age, and medical conditions matter."
     )
 
