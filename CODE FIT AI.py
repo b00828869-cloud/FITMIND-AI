@@ -33,40 +33,36 @@ with col2:
     )
 
 def bmi_to_angle_deg(bmi):
-    # Clamp BMI into [10, 50] so needle never goes out of range
+    # clamp BMI to stay within the gauge
     b = max(10, min(50, bmi))
-    # Map 10 -> -100°, 50 -> +100°
+    # map BMI 10 -> -100°, BMI 50 -> +100°
     ratio = (b - 10) / (50 - 10)  # 0..1
-    return -100 + ratio * 200     # [-100, +100] degrees
+    return -100 + ratio * 200     # [-100, +100]
+
+def bmi_category(bmi):
+    if bmi < 18.5:
+        return "UNDERWEIGHT"
+    elif bmi < 25:
+        return "NORMAL"
+    elif bmi < 30:
+        return "OVERWEIGHT"
+    elif bmi < 40:
+        return "OBESE"
+    else:
+        return "SEVERELY OBESE"
 
 if st.button("Calculate BMI"):
     bmi = weight / (height ** 2)
+    cat_label = bmi_category(bmi)
 
-    st.markdown(f"Your BMI is **{bmi:.1f}**")
-
-    # choose label for message box
-    if bmi < 18.5:
-        st.warning("UNDERWEIGHT (<18.5)")
-        cat_label = "UNDERWEIGHT"
-    elif bmi < 25:
-        st.success("NORMAL (18.5 – 24.9)")
-        cat_label = "NORMAL"
-    elif bmi < 30:
-        st.info("OVERWEIGHT (25.0 – 29.9)")
-        cat_label = "OVERWEIGHT"
-    elif bmi < 40:
-        st.error("OBESE (30.0 – 39.9)")
-        cat_label = "OBESE"
-    else:
-        st.error("SEVERELY OBESE (≥ 40.0)")
-        cat_label = "SEVERELY OBESE"
+    st.markdown(f"Your BMI is **{bmi:.1f} ({cat_label})**")
 
     st.divider()
     st.subheader("BMI Gauge")
 
     angle = bmi_to_angle_deg(bmi)
 
-    # ------- D3.js gauge HTML block -------
+    # HTML + D3 gauge with labels in each slice
     gauge_html = f"""
     <html>
       <head>
@@ -78,10 +74,17 @@ if st.button("Calculate BMI"):
             color: #1a1a1a;
           }}
 
-          .segment-label {{
+          .segment-line1 {{
+            font-size: 12px;
+            fill: #1a1a1a;
+            font-weight: 700;
+            text-anchor: middle;
+          }}
+
+          .segment-line2 {{
             font-size: 11px;
             fill: #1a1a1a;
-            font-weight: 600;
+            font-weight: 500;
             text-anchor: middle;
           }}
 
@@ -94,32 +97,51 @@ if st.button("Calculate BMI"):
         </style>
       </head>
       <body>
-        <div id="gauge-container" style="width:500px; margin:0 auto;"></div>
+        <div id="gauge-container" style="width:600px; margin:0 auto;"></div>
 
         <script>
-          // SVG / layout config
-          const width = 500;
-          const height = 260;
-          const outerR = 180;      // outer radius of the gauge band
-          const innerR = 110;      // inner radius of the gauge band
-          const centerX = width / 2;
-          const centerY = 200;     // push gauge up/down visually
+          // --- Layout config ---
+          const width = 600;
+          const height = 320;
 
-          // Gauge covers -100° to +100°
+          // Radii of the arc
+          const outerR = 200;
+          const innerR = 130;
+
+          // Where the gauge sits
+          const centerX = width / 2;
+          const centerY = 220;
+
+          // Gauge spans from -100deg to +100deg
           const startDeg = -100;
           const endDeg = 100;
 
-          // Our 5 slices across that arc, evenly spaced
+          // 5 segments across the arc
           const segments = [
-            {{ name1: "UNDERWEIGHT",    name2: "< 18.5" }},
-            {{ name1: "NORMAL",         name2: "18.5 – 24.9" }},
-            {{ name1: "OVERWEIGHT",     name2: "25.0 – 29.9" }},
-            {{ name1: "OBESE",          name2: "30.0 – 39.9" }},
-            {{ name1: "SEVERELY OBESE", name2: "≥ 40.0" }},
+            {{
+              line1: "UNDERWEIGHT",
+              line2: "< 18.5"
+            }},
+            {{
+              line1: "NORMAL",
+              line2: "18.5 – 24.9"
+            }},
+            {{
+              line1: "OVERWEIGHT",
+              line2: "25.0 – 29.9"
+            }},
+            {{
+              line1: "OBESE",
+              line2: "30.0 – 39.9"
+            }},
+            {{
+              line1: "SEVERELY OBESE",
+              line2: "≥ 40.0"
+            }}
           ];
 
-          const totalArc = endDeg - startDeg;             // 200 deg
-          const arcPerSeg = totalArc / segments.length;   // 40 deg each
+          const totalArc = endDeg - startDeg;          // 200 deg
+          const arcPerSeg = totalArc / segments.length; // 40 deg/segment
 
           // Create SVG
           const svg = d3.select("#gauge-container")
@@ -129,54 +151,56 @@ if st.button("Calculate BMI"):
 
           const g = svg.append("g");
 
-          // Draw each yellow wedge
+          // Draw each wedge + text
           segments.forEach((seg, i) => {{
             const segStart = startDeg + i * arcPerSeg;
-            const segEnd   = startDeg + (i+1) * arcPerSeg;
+            const segEnd   = startDeg + (i + 1) * arcPerSeg;
 
+            // The slice shape
             const arcGen = d3.arc()
               .innerRadius(innerR)
               .outerRadius(outerR)
               .startAngle(segStart * Math.PI/180)
               .endAngle(segEnd * Math.PI/180);
 
+            // Draw the colored band piece
             g.append("path")
               .attr("d", arcGen)
               .attr("fill", "#F4C542")
               .attr("stroke", "white")
-              .attr("stroke-width", 4)
+              .attr("stroke-width", 5)
               .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-            // Mid-angle for label placement
+            // Compute label anchor point (middle angle)
             const midDeg = (segStart + segEnd)/2;
             const midRad = midDeg * Math.PI/180;
-            const labelR = (innerR + outerR)/2;
+            const labelR = (innerR + outerR)/2; // halfway inside wedge
 
             const lx = centerX + labelR * Math.cos(midRad);
             const ly = centerY + labelR * Math.sin(midRad);
 
-            // two-line label
+            // Two-line label (line1 bold caps, line2 range)
             g.append("text")
-              .attr("class", "segment-label")
+              .attr("class", "segment-line1")
               .attr("x", lx)
               .attr("y", ly - 6)
-              .text(seg.name1)
+              .text(seg.line1)
               .attr("text-anchor", "middle");
 
             g.append("text")
-              .attr("class", "segment-label")
+              .attr("class", "segment-line2")
               .attr("x", lx)
-              .attr("y", ly + 10)
-              .text(seg.name2)
+              .attr("y", ly + 12)
+              .text(seg.line2)
               .attr("text-anchor", "middle");
           }});
 
-          // Needle group at center
+          // ----- Needle -----
           const needleGroup = g.append("g")
             .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-          // Needle shape (triangle-ish)
-          const needleLen = 125;
+          // needle shape: a slim triangle pointing straight up (0deg = up)
+          const needleLen = 140;
           const needleWidth = 6;
           const needlePath = d3.path();
           needlePath.moveTo(0, 0);
@@ -189,16 +213,16 @@ if st.button("Calculate BMI"):
             .attr("d", needlePath.toString())
             .attr("fill", "#2E0A78");
 
-          // Purple circle base
+          // purple circle base
           needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
-            .attr("r", 20)
+            .attr("r", 22)
             .attr("fill", "#2E0A78")
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-          // White inner circle
+          // white inner circle
           needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
@@ -207,18 +231,19 @@ if st.button("Calculate BMI"):
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-          // BMI text under gauge
+          // BMI text under gauge (centered)
           g.append("text")
             .attr("class", "bmi-readout")
             .attr("x", centerX)
-            .attr("y", centerY + 40)
-            .text("BMI: {bmi:.1f} ({cat_label})");
+            .attr("y", centerY + 50)
+            .text("BMI: {bmi:.1f} ({cat_label})")
+            .attr("text-anchor", "middle");
 
-          // Animate needle from far left (-100deg) to target angle
-          const targetAngle = {angle};
+          // Animate needle rotation
+          const targetAngle = {angle}; // from Python, -100 to +100 deg
 
           needle
-            .attr("transform", "rotate(-100)")
+            .attr("transform", "rotate(-100)") // start far left
             .transition()
             .duration(800)
             .attr("transform", `rotate(${{targetAngle}})`);
@@ -227,11 +252,12 @@ if st.button("Calculate BMI"):
     </html>
     """
 
-    # Render the custom HTML/JS block inside Streamlit
-    components.html(gauge_html, height=320)
+    # Inject HTML/JS gauge into Streamlit
+    components.html(gauge_html, height=360)
 
     st.caption(
         "This gauge is interactive (D3.js). BMI is only an indicator. "
         "Muscle mass, age, and medical conditions matter."
     )
+
 
