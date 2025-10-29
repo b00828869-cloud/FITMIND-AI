@@ -250,4 +250,3 @@ if st.button("Calculate BMI"):
         "This BMI gauge is interactive (D3.js). BMI is only an indicator. "
         "Muscle mass, age, and medical conditions matter."
     )
-
