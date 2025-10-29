@@ -1,22 +1,18 @@
 import streamlit as st
-import streamlit.components.v1 as components
 
-# -------------------------------------------------
-# Streamlit page config
-# -------------------------------------------------
 st.set_page_config(
-    page_title="FitMind AI - BMI Calculator",
+    page_title="FitMind AI - BMI Advisor",
     page_icon="💪",
     layout="centered"
 )
 
-# -------------------------------------------------
-# Helper functions (Python)
-# -------------------------------------------------
-def bmi_value(weight_kg: float, height_m: float) -> float:
-    return weight_kg / (height_m ** 2)
+# -------------------------------
+# Helper functions
+# -------------------------------
+def calculate_bmi(weight, height):
+    return weight / (height ** 2)
 
-def bmi_category(bmi: float) -> str:
+def bmi_category(bmi):
     if bmi < 18.5:
         return "UNDERWEIGHT"
     elif bmi < 25:
@@ -28,225 +24,72 @@ def bmi_category(bmi: float) -> str:
     else:
         return "SEVERELY OBESE"
 
-def bmi_to_angle_deg(bmi: float) -> float:
-    """
-    We map BMI range [10, 50] -> [-100°, +100°]
-    Clamp so needle never goes outside the gauge.
-    """
-    b = max(10, min(50, bmi))
-    ratio = (b - 10) / (50 - 10)  # 0..1
-    return -100 + ratio * 200     # degrees
+def bmi_advice(bmi, category):
+    if category == "UNDERWEIGHT":
+        return (
+            "Your BMI indicates that you are **underweight**.\n\n"
+            "👉 A healthy BMI usually ranges between **18.5 and 24.9**.\n\n"
+            "You may need to **increase your caloric intake** and focus on foods rich in healthy fats and proteins. "
+            "Consider strength training to gain muscle mass. If your weight loss is unintentional, consult a doctor or nutritionist."
+        )
+    elif category == "NORMAL":
+        return (
+            "🎉 Congratulations! Your BMI is within the **healthy range (18.5 – 24.9)**.\n\n"
+            "Keep maintaining a **balanced diet**, regular **physical activity**, and good **sleep habits**. "
+            "You can still focus on improving your body composition by increasing muscle mass or maintaining endurance."
+        )
+    elif category == "OVERWEIGHT":
+        return (
+            "⚠️ Your BMI indicates **overweight**.\n\n"
+            "The healthy range is **18.5 – 24.9**. You are above that, which might increase the risk of cardiovascular issues over time.\n\n"
+            "✅ Tips:\n"
+            "- Focus on a slight **caloric deficit** (eat fewer calories than you burn).\n"
+            "- Increase **physical activity**: cardio + strength training.\n"
+            "- Monitor progress gradually — even losing **5–10% of your body weight** can improve your health significantly."
+        )
+    elif category == "OBESE":
+        return (
+            "🚨 Your BMI indicates **obesity (30.0 – 39.9)**.\n\n"
+            "This range is associated with higher risks for **diabetes, hypertension, and cardiovascular disease**.\n\n"
+            "✅ Recommendations:\n"
+            "- Consult a healthcare professional for a personalized plan.\n"
+            "- Adopt a **sustainable nutrition plan**, not a restrictive one.\n"
+            "- Begin with **low-impact activities** (walking, swimming, cycling).\n"
+            "- Track small wins — long-term consistency matters more than rapid loss."
+        )
+    else:  # SEVERELY OBESE
+        return (
+            "🚨 Your BMI indicates **severe obesity (≥ 40)**.\n\n"
+            "This range significantly increases the risk of chronic conditions. "
+            "It is important to get **medical supervision** to design a safe, long-term strategy.\n\n"
+            "✅ Next steps:\n"
+            "- Seek medical and nutritional support (doctor, dietitian, coach).\n"
+            "- Focus on **gradual weight loss** and improving **daily mobility**.\n"
+            "- Remember: sustainable change is possible, and every effort counts."
+        )
 
-
-# -------------------------------------------------
-# UI
-# -------------------------------------------------
-st.title("FitMind AI - BMI Calculator 💪")
+# -------------------------------
+# App layout
+# -------------------------------
+st.title("FitMind AI - Personalized BMI Analysis 💡")
 st.write(
-    "Enter your weight and height to estimate your BMI, see your health category, "
-    "and visualize it on a dynamic gauge."
+    "This tool helps you understand your **Body Mass Index (BMI)** and gives you tailored advice "
+    "to help you reach and maintain a healthy range."
 )
 
 col1, col2 = st.columns(2)
 with col1:
-    weight = st.number_input(
-        "Weight (kg):",
-        min_value=30.0,
-        max_value=250.0,
-        step=0.5,
-        value=75.0
-    )
+    weight = st.number_input("Weight (kg):", min_value=30.0, max_value=250.0, step=0.5, value=75.0)
 with col2:
-    height = st.number_input(
-        "Height (m):",
-        min_value=1.2,
-        max_value=2.2,
-        step=0.01,
-        value=1.75
-    )
+    height = st.number_input("Height (m):", min_value=1.2, max_value=2.2, step=0.01, value=1.75)
 
 if st.button("Calculate BMI"):
-    # 1. Calculate BMI + label
-    bmi = bmi_value(weight, height)
-    cat_label = bmi_category(bmi)
+    bmi = calculate_bmi(weight, height)
+    category = bmi_category(bmi)
 
-    st.markdown(f"Your BMI is **{bmi:.1f} ({cat_label})**")
+    st.markdown(f"## 🧮 Your BMI: **{bmi:.1f}**")
+    st.markdown(f"### Category: **{category}**")
+
     st.divider()
-    st.subheader("BMI Gauge")
+    st.markdown(bmi_advice(bmi, category))
 
-    # 2. Compute needle angle + text for JS
-    angle = bmi_to_angle_deg(bmi)
-    bmi_text_js = f"BMI: {bmi:.1f} ({cat_label})"
-
-    # 3. Build D3 gauge HTML
-    gauge_html = f"""
-    <div id="gauge-root" style="
-        width:700px;
-        margin:0 auto;
-        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    "></div>
-
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script>
-    (function() {{
-        // ----- DATA FROM PYTHON -----
-        const bmiText = {bmi_text_js!r};        // ex: "BMI: 23.1 (NORMAL)"
-        const targetAngle = {angle};            // ex: 15.2 (degrees)
-
-        // ----- SEGMENTS DEFINITIONS -----
-        // Labels to draw inside each yellow wedge
-        const segments = [
-            {{ line1: "UNDERWEIGHT",    line2: "< 18.5" }},
-            {{ line1: "NORMAL",         line2: "18.5 – 24.9" }},
-            {{ line1: "OVERWEIGHT",     line2: "25.0 – 29.9" }},
-            {{ line1: "OBESE",          line2: "30.0 – 39.9" }},
-            {{ line1: "SEVERELY OBESE", line2: "≥ 40.0" }}
-        ];
-
-        // ----- LAYOUT CONSTANTS -----
-        // We make it wide so text at the extremes isn't cut off
-        const width = 700;
-        const height = 360;
-
-        // Radii of the arc band
-        const outerR = 230;    // outer radius
-        const innerR = 150;    // inner radius
-        const labelR = (innerR + outerR) / 2;  // where labels go
-
-        // The pivot of the needle / center of gauge arc
-        const centerX = width / 2;
-        const centerY = 250;   // move gauge down to leave space above
-
-        // Gauge arc covers -100 deg to +100 deg
-        const startDeg = -100;
-        const endDeg = 100;
-        const totalArc = endDeg - startDeg;           // 200 deg span
-        const arcPerSeg = totalArc / segments.length; // 40 deg each
-
-        // ----- CREATE SVG -----
-        const container = d3.select("#gauge-root");
-        const svg = container.append("svg")
-            .attr("width", width)
-            .attr("height", height)
-            .style("background-color", "white"); // force white bg even in dark theme
-
-        const g = svg.append("g");
-
-        // ----- DRAW SEGMENTS + LABELS -----
-        segments.forEach((seg, i) => {{
-            const segStart = startDeg + i * arcPerSeg;
-            const segEnd   = startDeg + (i + 1) * arcPerSeg;
-
-            // arc path for this segment
-            const arcGen = d3.arc()
-                .innerRadius(innerR)
-                .outerRadius(outerR)
-                .startAngle(segStart * Math.PI/180)
-                .endAngle(segEnd * Math.PI/180);
-
-            // yellow slice
-            g.append("path")
-                .attr("d", arcGen)
-                .attr("fill", "#F4C542")
-                .attr("stroke", "white")
-                .attr("stroke-width", 6)
-                .attr("transform", `translate(${centerX}, ${centerY})`);
-
-            // mid-angle for label position
-            const midDeg = (segStart + segEnd)/2;
-            const midRad = midDeg * Math.PI/180;
-
-            // We pull the label slightly toward the inner radius for readability
-            const lx = centerX + (labelR - 10) * Math.cos(midRad);
-            const ly = centerY + (labelR - 10) * Math.sin(midRad);
-
-            // line1 (bold, with white stroke outline for contrast)
-            g.append("text")
-                .attr("x", lx)
-                .attr("y", ly - 6)
-                .text(seg.line1)
-                .attr("fill", "#1a1a1a")
-                .attr("font-size", "13px")
-                .attr("font-weight", "700")
-                .attr("text-anchor", "middle")
-                .attr("stroke", "white")
-                .attr("stroke-width", 2)
-                .attr("paint-order", "stroke");
-
-            // line2 (range text)
-            g.append("text")
-                .attr("x", lx)
-                .attr("y", ly + 12)
-                .text(seg.line2)
-                .attr("fill", "#1a1a1a")
-                .attr("font-size", "12px")
-                .attr("font-weight", "500")
-                .attr("text-anchor", "middle")
-                .attr("stroke", "white")
-                .attr("stroke-width", 2)
-                .attr("paint-order", "stroke");
-        }});
-
-        // ----- NEEDLE -----
-        const needleGroup = g.append("g")
-            .attr("transform", `translate(${centerX}, ${centerY})`);
-
-        // Needle is a thin triangle that starts pointing straight up (0deg)
-        const needleLen = 160;
-        const needleWidth = 6;
-        const needlePath = d3.path();
-        needlePath.moveTo(0, 0);
-        needlePath.lineTo(-needleWidth, 0);
-        needlePath.lineTo(0, -needleLen);
-        needlePath.lineTo(needleWidth, 0);
-        needlePath.closePath();
-
-        const needle = needleGroup.append("path")
-            .attr("d", needlePath.toString())
-            .attr("fill", "#2E0A78");
-
-        // Purple base circle
-        needleGroup.append("circle")
-            .attr("cx", 0)
-            .attr("cy", 0)
-            .attr("r", 24)
-            .attr("fill", "#2E0A78")
-            .attr("stroke", "#2E0A78")
-            .attr("stroke-width", 3);
-
-        // White center circle
-        needleGroup.append("circle")
-            .attr("cx", 0)
-            .attr("cy", 0)
-            .attr("r", 9)
-            .attr("fill", "white")
-            .attr("stroke", "#2E0A78")
-            .attr("stroke-width", 3);
-
-        // BMI text under gauge
-        g.append("text")
-            .attr("x", centerX)
-            .attr("y", centerY + 60)
-            .text(bmiText)
-            .attr("fill", "#1a1a1a")
-            .attr("font-size", "22px")
-            .attr("font-weight", "700")
-            .attr("text-anchor", "middle");
-
-        // ----- NEEDLE ANIMATION -----
-        needle
-            .attr("transform", "rotate(-100)")  // start fully left
-            .transition()
-            .duration(800)
-            .attr("transform", `rotate(${targetAngle})`);
-    }})();
-    </script>
-    """
-
-    # 4. Render the gauge in Streamlit
-    components.html(gauge_html, height=420)
-
-    st.caption(
-        "This BMI gauge is interactive (D3.js). BMI is only an indicator. "
-        "Muscle mass, age, and medical conditions matter."
-    )
