@@ -8,32 +8,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# -------------------------
-# Helpers (Python side)
-# -------------------------
-def bmi_to_angle_deg(bmi):
-    # clamp BMI range so we never go outside the gauge
-    b = max(10, min(50, bmi))
-    # map BMI 10 -> -100 deg, BMI 50 -> +100 deg
-    ratio = (b - 10) / (50 - 10)
-    return -100 + ratio * 200  # in degrees
-
-def bmi_category(bmi):
-    if bmi < 18.5:
-        return "UNDERWEIGHT"
-    elif bmi < 25:
-        return "NORMAL"
-    elif bmi < 30:
-        return "OVERWEIGHT"
-    elif bmi < 40:
-        return "OBESE"
-    else:
-        return "SEVERELY OBESE"
-
-
-# -------------------------
-# Streamlit UI
-# -------------------------
 st.title("FitMind AI - BMI Calculator 💪")
 st.write(
     "Enter your weight and height to estimate your BMI, see your health category, "
@@ -58,146 +32,174 @@ with col2:
         value=1.75
     )
 
+def bmi_to_angle_deg(bmi):
+    # Clamp BMI into [10, 50] so needle never goes out of range
+    b = max(10, min(50, bmi))
+    # Map 10 -> -100°, 50 -> +100°
+    ratio = (b - 10) / (50 - 10)  # 0..1
+    return -100 + ratio * 200     # [-100, +100] degrees
+
 if st.button("Calculate BMI"):
     bmi = weight / (height ** 2)
-    cat_label = bmi_category(bmi)
-    angle = bmi_to_angle_deg(bmi)
 
-    st.markdown(f"Your BMI is **{bmi:.1f} ({cat_label})**")
+    st.markdown(f"Your BMI is **{bmi:.1f}**")
+
+    # choose label for message box
+    if bmi < 18.5:
+        st.warning("UNDERWEIGHT (<18.5)")
+        cat_label = "UNDERWEIGHT"
+    elif bmi < 25:
+        st.success("NORMAL (18.5 – 24.9)")
+        cat_label = "NORMAL"
+    elif bmi < 30:
+        st.info("OVERWEIGHT (25.0 – 29.9)")
+        cat_label = "OVERWEIGHT"
+    elif bmi < 40:
+        st.error("OBESE (30.0 – 39.9)")
+        cat_label = "OBESE"
+    else:
+        st.error("SEVERELY OBESE (≥ 40.0)")
+        cat_label = "SEVERELY OBESE"
+
     st.divider()
     st.subheader("BMI Gauge")
 
-    # We'll send data to JS like this:
-    js_payload = {
-        "bmi_text": f"BMI: {bmi:.1f} ({cat_label})",
-        "angle": angle
-    }
+    angle = bmi_to_angle_deg(bmi)
 
-    # Build the HTML/JS. We don't include <html> or <body>, just a container.
+    # ------- D3.js gauge HTML block -------
     gauge_html = f"""
-    <div id="gauge-root" style="width:600px; margin:0 auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"></div>
+    <html>
+      <head>
+        <script src="https://d3js.org/d3.v7.min.js"></script>
+        <style>
+          body {{
+            background-color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #1a1a1a;
+          }}
 
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script>
-    (function() {{
-        // ----- DATA FROM PYTHON -----
-        const bmiText = {js_payload["bmi_text"]!r};
-        const targetAngle = {js_payload["angle"]};
+          .segment-label {{
+            font-size: 11px;
+            fill: #1a1a1a;
+            font-weight: 600;
+            text-anchor: middle;
+          }}
 
-        // ----- STATIC SEGMENTS DEFINITIONS -----
-        // We keep the text content here in JS to avoid weird unicode in Python f-string
-        const segments = [
-            {{ line1: "UNDERWEIGHT",    line2: "< 18.5" }},
-            {{ line1: "NORMAL",         line2: "18.5 - 24.9" }},
-            {{ line1: "OVERWEIGHT",     line2: "25.0 - 29.9" }},
-            {{ line1: "OBESE",          line2: "30.0 - 39.9" }},
-            {{ line1: "SEVERELY OBESE", line2: ">= 40.0" }}
-        ];
+          .bmi-readout {{
+            font-size: 20px;
+            font-weight: 600;
+            fill: #1a1a1a;
+            text-anchor: middle;
+          }}
+        </style>
+      </head>
+      <body>
+        <div id="gauge-container" style="width:500px; margin:0 auto;"></div>
 
-        // ----- LAYOUT CONSTANTS -----
-        const width = 600;
-        const height = 320;
+        <script>
+          // SVG / layout config
+          const width = 500;
+          const height = 260;
+          const outerR = 180;      // outer radius of the gauge band
+          const innerR = 110;      // inner radius of the gauge band
+          const centerX = width / 2;
+          const centerY = 200;     // push gauge up/down visually
 
-        const outerR = 200;
-        const innerR = 130;
+          // Gauge covers -100° to +100°
+          const startDeg = -100;
+          const endDeg = 100;
 
-        // center of the gauge (the pivot of the needle)
-        const centerX = width / 2;
-        const centerY = 220;
+          // Our 5 slices across that arc, evenly spaced
+          const segments = [
+            {{ name1: "UNDERWEIGHT",    name2: "< 18.5" }},
+            {{ name1: "NORMAL",         name2: "18.5 – 24.9" }},
+            {{ name1: "OVERWEIGHT",     name2: "25.0 – 29.9" }},
+            {{ name1: "OBESE",          name2: "30.0 – 39.9" }},
+            {{ name1: "SEVERELY OBESE", name2: "≥ 40.0" }},
+          ];
 
-        // gauge arc from -100 deg to +100 deg
-        const startDeg = -100;
-        const endDeg = 100;
-        const totalArc = endDeg - startDeg;        // 200
-        const arcPerSeg = totalArc / segments.length; // 40 deg each
+          const totalArc = endDeg - startDeg;             // 200 deg
+          const arcPerSeg = totalArc / segments.length;   // 40 deg each
 
-        // ----- CREATE SVG -----
-        const container = d3.select("#gauge-root");
-        const svg = container.append("svg")
+          // Create SVG
+          const svg = d3.select("#gauge-container")
+            .append("svg")
             .attr("width", width)
-            .attr("height", height)
-            .style("background-color", "white");  // force white background
+            .attr("height", height);
 
-        const g = svg.append("g");
+          const g = svg.append("g");
 
-        // ----- DRAW SEGMENTS -----
-        segments.forEach((seg, i) => {{
+          // Draw each yellow wedge
+          segments.forEach((seg, i) => {{
             const segStart = startDeg + i * arcPerSeg;
-            const segEnd   = startDeg + (i + 1) * arcPerSeg;
+            const segEnd   = startDeg + (i+1) * arcPerSeg;
 
             const arcGen = d3.arc()
-                .innerRadius(innerR)
-                .outerRadius(outerR)
-                .startAngle(segStart * Math.PI/180)
-                .endAngle(segEnd * Math.PI/180);
+              .innerRadius(innerR)
+              .outerRadius(outerR)
+              .startAngle(segStart * Math.PI/180)
+              .endAngle(segEnd * Math.PI/180);
 
-            // wedge
             g.append("path")
-                .attr("d", arcGen)
-                .attr("fill", "#F4C542")
-                .attr("stroke", "white")
-                .attr("stroke-width", 5)
-                .attr("transform", `translate(${centerX}, ${centerY})`);
+              .attr("d", arcGen)
+              .attr("fill", "#F4C542")
+              .attr("stroke", "white")
+              .attr("stroke-width", 4)
+              .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-            // label position in the middle of this wedge
-            const midDeg = (segStart + segEnd) / 2;
+            // Mid-angle for label placement
+            const midDeg = (segStart + segEnd)/2;
             const midRad = midDeg * Math.PI/180;
-            const labelR = (innerR + outerR) / 2;
+            const labelR = (innerR + outerR)/2;
 
             const lx = centerX + labelR * Math.cos(midRad);
             const ly = centerY + labelR * Math.sin(midRad);
 
-            // line1 (bold)
+            // two-line label
             g.append("text")
-                .attr("x", lx)
-                .attr("y", ly - 6)
-                .text(seg.line1)
-                .attr("fill", "#1a1a1a")
-                .attr("font-size", "12px")
-                .attr("font-weight", "700")
-                .attr("text-anchor", "middle");
+              .attr("class", "segment-label")
+              .attr("x", lx)
+              .attr("y", ly - 6)
+              .text(seg.name1)
+              .attr("text-anchor", "middle");
 
-            // line2 (range)
             g.append("text")
-                .attr("x", lx)
-                .attr("y", ly + 12)
-                .text(seg.line2)
-                .attr("fill", "#1a1a1a")
-                .attr("font-size", "11px")
-                .attr("font-weight", "500")
-                .attr("text-anchor", "middle");
-        }});
+              .attr("class", "segment-label")
+              .attr("x", lx)
+              .attr("y", ly + 10)
+              .text(seg.name2)
+              .attr("text-anchor", "middle");
+          }});
 
-        // ----- NEEDLE GROUP -----
-        const needleGroup = g.append("g")
-            .attr("transform", `translate(${centerX}, ${centerY})`);
+          // Needle group at center
+          const needleGroup = g.append("g")
+            .attr("transform", `translate(${{centerX}}, ${{centerY}})`);
 
-        // needle shape (skinny triangle pointing straight up initially)
-        const needleLen = 140;
-        const needleWidth = 6;
+          // Needle shape (triangle-ish)
+          const needleLen = 125;
+          const needleWidth = 6;
+          const needlePath = d3.path();
+          needlePath.moveTo(0, 0);
+          needlePath.lineTo(-needleWidth, 0);
+          needlePath.lineTo(0, -needleLen);
+          needlePath.lineTo(needleWidth, 0);
+          needlePath.closePath();
 
-        const needlePath = d3.path();
-        needlePath.moveTo(0, 0);
-        needlePath.lineTo(-needleWidth, 0);
-        needlePath.lineTo(0, -needleLen);
-        needlePath.lineTo(needleWidth, 0);
-        needlePath.closePath();
-
-        const needle = needleGroup.append("path")
+          const needle = needleGroup.append("path")
             .attr("d", needlePath.toString())
             .attr("fill", "#2E0A78");
 
-        // purple circle base
-        needleGroup.append("circle")
+          // Purple circle base
+          needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
-            .attr("r", 22)
+            .attr("r", 20)
             .attr("fill", "#2E0A78")
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-        // white inner circle
-        needleGroup.append("circle")
+          // White inner circle
+          needleGroup.append("circle")
             .attr("cx", 0)
             .attr("cy", 0)
             .attr("r", 8)
@@ -205,32 +207,30 @@ if st.button("Calculate BMI"):
             .attr("stroke", "#2E0A78")
             .attr("stroke-width", 3);
 
-        // BMI readout text under gauge
-        g.append("text")
+          // BMI text under gauge
+          g.append("text")
+            .attr("class", "bmi-readout")
             .attr("x", centerX)
-            .attr("y", centerY + 50)
-            .text(bmiText)
-            .attr("fill", "#1a1a1a")
-            .attr("font-size", "20px")
-            .attr("font-weight", "600")
-            .attr("text-anchor", "middle");
+            .attr("y", centerY + 40)
+            .text("BMI: {bmi:.1f} ({cat_label})");
 
-        // ----- NEEDLE ANIMATION -----
-        needle
-            .attr("transform", "rotate(-100)")  // start far left
+          // Animate needle from far left (-100deg) to target angle
+          const targetAngle = {angle};
+
+          needle
+            .attr("transform", "rotate(-100)")
             .transition()
             .duration(800)
-            .attr("transform", `rotate(${targetAngle})`);
-    }})();
-    </script>
+            .attr("transform", `rotate(${{targetAngle}})`);
+        </script>
+      </body>
+    </html>
     """
 
-    # render component
-    components.html(gauge_html, height=400)
+    # Render the custom HTML/JS block inside Streamlit
+    components.html(gauge_html, height=320)
 
     st.caption(
-        "Interactive gauge built in D3.js. BMI is only an indicator. "
+        "This gauge is interactive (D3.js). BMI is only an indicator. "
         "Muscle mass, age, and medical conditions matter."
     )
-
-
