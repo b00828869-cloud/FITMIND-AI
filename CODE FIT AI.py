@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from datetime import date
 
-# ==============
+# =========================
 # Constants
-# ==============
+# =========================
 ACTIVITY_MULT = {
     "Sedentary": 1.20, "Lightly Active": 1.375, "Moderately Active": 1.55,
     "Very Active": 1.725, "Extra Active": 1.90,
@@ -21,12 +21,13 @@ PALETTE = {
     "ink": "#222222", "muted": "#555555", "grid": "#DADCE0", "panel": "#F9F9FB",
 }
 
-# ==============
-# Helpers
-# ==============
+# =========================
+# Helpers (physio)
+# =========================
 def kg_to_lbs(x): return x * 2.2046226218
 
 def bmr_mifflin_st_jeor(sex, age, height_cm, weight_kg):
+    """Mifflin–St Jeor: 10w + 6.25h − 5a + s (s=+5 men / −161 women)"""
     s = 5 if sex in ["Male", "M", "Homme", "male"] else -161
     return 10 * weight_kg + 6.25 * height_cm - 5 * age + s
 
@@ -41,6 +42,7 @@ def adherence_level(deficit_kcal_per_day, weeks):
 
 def plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_level,
                 min_deficit=300, max_deficit=900):
+    """Retourne BMR/TDEE, déficit requis & effectif (plancher), projections, etc."""
     bmr = bmr_mifflin_st_jeor(sex, age, height_cm, weight_start)
     tdee = bmr * ACTIVITY_MULT.get(activity_level, 1.55)
 
@@ -48,7 +50,7 @@ def plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_
     target_loss_lbs = kg_to_lbs(target_loss_kg)
     days = max(1, int(weeks * 7))
 
-    # Déficit "requis" borné 300–900
+    # Déficit "requis" par objectif/temps (borné 300–900)
     deficit_req = (target_loss_lbs * 3500) / days
     deficit_req = float(np.clip(deficit_req, min_deficit, max_deficit))
 
@@ -57,7 +59,7 @@ def plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_
     calories_goal_raw = tdee - deficit_req
     calories_goal = max(calories_goal_raw, min_intake)
 
-    # Déficit effectif (après plancher)
+    # Déficit effectif après plancher
     effective_deficit = max(0.0, tdee - calories_goal)  # == min(deficit_req, TDEE - floor)
     floor_triggered = calories_goal > calories_goal_raw + 1e-9
 
@@ -65,6 +67,7 @@ def plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_
     physio_loss_per_week_kg = (effective_deficit * 7.0) / 7700.0
     physio_total_kg = physio_loss_per_week_kg * weeks
 
+    # Durée nécessaire si on garde ce rythme "safe"
     weeks_needed_safe = (
         (target_loss_lbs * 3500) / max(effective_deficit, 1e-9) / 7.0
         if effective_deficit > 0 else float("inf")
@@ -82,16 +85,18 @@ def plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_
     )
 
 def projection_effective(weight_start, target_loss_kg, physio_total_kg, weeks):
-    """Projection vers le poids atteignable au bout de N semaines (pas forcément le goal)."""
+    """Projection vers le poids réellement atteignable au bout de N semaines."""
     achievable_loss = min(target_loss_kg, physio_total_kg)
     end_weight = weight_start - achievable_loss
     t = np.arange(0, int(np.ceil(weeks)) + 1)
     w = weight_start + (end_weight - weight_start) * (t / max(1, weeks))
     return pd.DataFrame({"Week": t, "Weight (kg)": w})
 
-# ---- Tracking schema (évite le crash data_editor) ----
+# =========================
+# Helpers (tracking & nutrition)
+# =========================
 def ensure_tracking_schema(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalise le schema: Date (datetime64[ns]), Weight (float), Calories (float)."""
+    """Normalise le schéma: Date (datetime64[ns]), Weight (float), Calories (float)."""
     if df is None:
         df = pd.DataFrame()
     out = pd.DataFrame()
@@ -100,7 +105,6 @@ def ensure_tracking_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["Calories"] = pd.to_numeric(df.get("Calories", pd.Series([], dtype="float")), errors="coerce")
     return out[["Date", "Weight (kg)", "Calories"]]
 
-# ---- “FAKE-IA” nutrition ----
 def macro_split(calories, p_ratio=0.30, c_ratio=0.40, f_ratio=0.30):
     p_cal, c_cal, f_cal = calories * p_ratio, calories * c_ratio, calories * f_ratio
     return dict(protein_g=round(p_cal/4), carbs_g=round(c_cal/4), fat_g=round(f_cal/9))
@@ -164,9 +168,9 @@ def render_meal_plan(cal_target):
             st.write(f"• {s}")
         st.write("• Protéines ≈ 1.6–2.2 g/kg de poids de corps. Ajuste si training ↑.")
 
-# ==============
-# App
-# ==============
+# =========================
+# App (3 onglets)
+# =========================
 st.set_page_config(page_title="FitPath — Physiological MVP", page_icon="🏋️", layout="centered")
 st.markdown(f"""
 <style>
@@ -186,20 +190,19 @@ with st.sidebar:
     sex = st.selectbox("Gender", ["Male", "Female"])
     age = st.number_input("Age", 18, 80, 26)
     height_cm = st.number_input("Height (cm)", 140, 210, 180)
-    weight_start = st.number_input("Current weight (kg)", 40.0, 200.0, 200.0, step=0.5)
+    weight_start = st.number_input("Current weight (kg)", 40.0, 200.0, 84.0, step=0.5)
     weight_goal = st.number_input("Target weight (kg)", 40.0, 200.0, 79.0, step=0.5)
     weeks = st.number_input("Duration (weeks)", 1, 52, 8)
     activity_level = st.selectbox("Activity level",
                                   ["Sedentary","Lightly Active","Moderately Active","Very Active","Extra Active"])
 
-# Calculs
+# Calculs + projection pour les onglets
 out = plan_physio(sex, age, height_cm, weight_start, weight_goal, weeks, activity_level)
-dfp = projection_effective(weight_start, out["target_loss_kg"], out["physio_total_kg"], weeks)  # dispo pour onglet 3
+dfp = projection_effective(weight_start, out["target_loss_kg"], out["physio_total_kg"], weeks)
 
-# Onglets
 tab1, tab2, tab3 = st.tabs(["Plan", "Nutrition (auto)", "Suivi"])
 
-# ---- Tab 1: Plan ----
+# ---------- Tab 1: Plan ----------
 with tab1:
     st.subheader("📊 Plan Summary")
     c1, c2 = st.columns(2)
@@ -225,21 +228,26 @@ with tab1:
 
     st.info(f"**Feasibility:** {out['level']} — {out['comment']}")
 
-    # Chart
+    # ----- Chart (projection atteignable, Y non ancré à 0) -----
     y = dfp["Weight (kg)"].values
     y_min, y_max = float(y.min()), float(y.max())
     pad = max(0.5, (y_max - y_min) * 0.15)
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(dfp["Week"], dfp["Weight (kg)"],
-            color=PALETTE["accent"], linewidth=3, marker="o",
-            markersize=6, markerfacecolor=PALETTE["sun"],
-            markeredgecolor="white", alpha=0.95, label="Projection (achievable)")
+    ax.plot(
+        dfp["Week"], dfp["Weight (kg)"],
+        color=PALETTE["accent"], linewidth=3, marker="o",
+        markersize=6, markerfacecolor=PALETTE["sun"],
+        markeredgecolor="white", alpha=0.95, label="Projection (achievable)"
+    )
     ax.fill_between(dfp["Week"], dfp["Weight (kg)"], color=PALETTE["mid"], alpha=0.15)
 
-    ax.set_facecolor(PALETTE["panel"]); fig.patch.set_facecolor(PALETTE["panel"])
-    for sside in ("top","right"): ax.spines[sside].set_visible(False)
-    ax.spines["left"].set_color(PALETTE["grid"]); ax.spines["bottom"].set_color(PALETTE["grid"])
+    ax.set_facecolor(PALETTE["panel"])
+    fig.patch.set_facecolor(PALETTE["panel"])
+    for sside in ("top", "right"):
+        ax.spines[sside].set_visible(False)
+    ax.spines["left"].set_color(PALETTE["grid"])
+    ax.spines["bottom"].set_color(PALETTE["grid"])
     ax.grid(alpha=0.18, color=PALETTE["grid"], linewidth=0.8)
     ax.set_ylim(y_min - pad, y_max + pad)
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -248,5 +256,97 @@ with tab1:
     ax.set_ylabel("Weight (kg)", fontsize=11, color=PALETTE["muted"])
     ax.legend(frameon=False)
 
-    goal_reached = out["physio_total_kg"] + 1e-6 >= out["target_loss_]()_
+    # ✅ condition correcte (corrige l'erreur de frappe précédente)
+    goal_reached = out["physio_total_kg"] + 1e-6 >= out["target_loss_kg"]
+    if not goal_reached:
+        msg = (f"Goal not reachable in {weeks} weeks at safe intake.\n~{out['weeks_needed_safe']:.1f} weeks needed."
+               if np.isfinite(out["weeks_needed_safe"]) else
+               "Goal not reachable at current safe intake.")
+        ax.text(0.02, 0.02, msg, transform=ax.transAxes, fontsize=10, color=PALETTE["mid"])
+
+    st.pyplot(fig)
+
+    with st.expander("🧠 How it’s calculated"):
+        st.markdown(
+            "- **BMR (Mifflin–St Jeor)**: `10*weight + 6.25*height - 5*age + s` (s=+5 men / −161 women)\n"
+            "- **TDEE** = BMR × activity factor\n"
+            "- **Required daily deficit** = `(loss(lbs)*3500)/(weeks*7)` → bounded 300–900 kcal/day\n"
+            "- **Safety floor** = 1500 kcal (men) / 1200 kcal (women)\n"
+            "- **Effective deficit** = `min(required_deficit, TDEE - floor)`\n"
+            "- **Loss estimate** = `(def_eff*7)/7700` kg/week • chart → achievable end weight."
+        )
+
+# ---------- Tab 2: Nutrition (auto) ----------
+with tab2:
+    st.subheader("🍽️ Meal plans (auto)")
+    st.caption("On ‘fait comme si’ un LLM générait ton plan par tranches caloriques.")
+    st.write(f"**Recommended intake:** ~**{int(out['kcal'])} kcal/j**")
+
+    bins = [1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800]
+    close = min(bins, key=lambda b: abs(b - out["kcal"]))
+    cal_target = st.slider("Daily calories for the plan", 1200, 3000, int(close), 100,
+                           help="Ajuste si tu veux plus/moins.")
+    render_meal_plan(cal_target)
+
+# ---------- Tab 3: Suivi ----------
+with tab3:
+    st.subheader("📈 Suivi & comparaison")
+    st.caption("Entre tes mesures (poids, calories…) et compare à la projection.")
+
+    if "tracking_df" not in st.session_state:
+        st.session_state.tracking_df = ensure_tracking_schema(pd.DataFrame())
+
+    with st.expander("Importer un CSV (colonnes: Date, Weight (kg), Calories)"):
+        up = st.file_uploader("Upload CSV", type=["csv"])
+        if up is not None:
+            try:
+                dfu = pd.read_csv(up)
+                st.session_state.tracking_df = ensure_tracking_schema(dfu)
+                st.success("Import ok.")
+            except Exception as e:
+                st.error(f"CSV illisible: {e}")
+
+    st.write("Ajoute/modifie tes lignes ci-dessous :")
+    edited = st.data_editor(
+        st.session_state.tracking_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Date": st.column_config.DatetimeColumn(format="YYYY-MM-DD", step=86400),
+            "Weight (kg)": st.column_config.NumberColumn(step=0.1, format="%.1f"),
+            "Calories": st.column_config.NumberColumn(step=10, format="%.0f"),
+        },
+        key="editor"
+    )
+    st.session_state.tracking_df = ensure_tracking_schema(edited)
+
+    # Courbes : réel vs projection
+    df_plot = st.session_state.tracking_df.dropna(subset=["Date", "Weight (kg)"]).copy()
+    if not df_plot.empty:
+        df_plot["Date"] = pd.to_datetime(df_plot["Date"])
+        df_plot["Day"] = (df_plot["Date"] - df_plot["Date"].min()).dt.days
+        df_plot["Week"] = df_plot["Day"] / 7.0
+
+        fig2, ax2 = plt.subplots(figsize=(8, 4))
+        ax2.plot(dfp["Week"], dfp["Weight (kg)"], linewidth=3, label="Projection (achievable)")
+        ax2.scatter(df_plot["Week"], df_plot["Weight (kg)"], s=35, label="Actual", zorder=3)
+
+        ax2.set_facecolor(PALETTE["panel"]); fig2.patch.set_facecolor(PALETTE["panel"])
+        for sside in ("top","right"): ax2.spines[sside].set_visible(False)
+        ax2.spines["left"].set_color(PALETTE["grid"]); ax2.spines["bottom"].set_color(PALETTE["grid"])
+        ax2.grid(alpha=0.18, color=PALETTE["grid"], linewidth=0.8)
+        ax2.set_title("Weight: Actual vs Projection", fontsize=14, fontweight="bold", color=PALETTE["deep"], pad=12)
+        ax2.set_xlabel("Weeks", fontsize=11, color=PALETTE["muted"])
+        ax2.set_ylabel("Weight (kg)", fontsize=11, color=PALETTE["muted"])
+        ax2.legend(frameon=False)
+        st.pyplot(fig2)
+
+    # Récap calories vs cible
+    if not st.session_state.tracking_df.empty and "Calories" in st.session_state.tracking_df:
+        avg_cal = st.session_state.tracking_df["Calories"].dropna().mean()
+        if np.isfinite(avg_cal):
+            delta = avg_cal - out["kcal"]
+            signe = "au-dessus" if delta > 0 else "en dessous"
+            st.info(f"Apport moyen: **{avg_cal:.0f} kcal/j** "
+                    f"({abs(delta):.0f} kcal {signe} de la cible **{out['kcal']:.0f}**).")
 
