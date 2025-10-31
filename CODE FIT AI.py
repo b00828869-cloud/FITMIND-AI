@@ -188,7 +188,7 @@ ax.set_ylim(y_min - pad, y_max + pad)
 # Ticks semaines = entiers
 ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-ax.set_title("🏋️ Weight Projection", fontsize=14, fontweight="bold", color=PALETTE["deep"], pad=12)
+ax.set_title(" Weight Projection", fontsize=14, fontweight="bold", color=PALETTE["deep"], pad=12)
 ax.set_xlabel("Weeks", fontsize=11, color=PALETTE["muted"])
 ax.set_ylabel("Weight (kg)", fontsize=11, color=PALETTE["muted"])
 ax.legend(frameon=False)
