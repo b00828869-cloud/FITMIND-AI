@@ -138,10 +138,20 @@ st.info(f"**Feasibility:** {out['level']} — {out['comment']}")
 # =========================
 # Modern chart (clean aesthetic)
 # =========================
+# =========================
+# Modern chart (clean aesthetic) — no forced zero on Y
+# =========================
+from matplotlib.ticker import MaxNLocator
+
 dfp = projection(weight_start, weight_goal, weeks)
+y = dfp["Weight (kg)"].values
+y_min, y_max = float(y.min()), float(y.max())
+# padding pour respirer autour de la courbe
+pad = max(0.5, (y_max - y_min) * 0.15)
+
 fig, ax = plt.subplots(figsize=(8, 4))
 
-# Line + markers with modern colors
+# Line + markers avec couleurs modernes
 ax.plot(
     dfp["Week"],
     dfp["Weight (kg)"],
@@ -163,7 +173,7 @@ ax.fill_between(
     alpha=0.15
 )
 
-# Clean frame & grid
+# Axes & grille propres
 ax.set_facecolor(PALETTE["panel"])
 fig.patch.set_facecolor(PALETTE["panel"])
 ax.spines["top"].set_visible(False)
@@ -172,12 +182,19 @@ ax.spines["left"].set_color(PALETTE["grid"])
 ax.spines["bottom"].set_color(PALETTE["grid"])
 ax.grid(alpha=0.18, color=PALETTE["grid"], linewidth=0.8)
 
+# >>> Clé: limites Y dynamiques (pas d’ancrage à zéro)
+ax.set_ylim(y_min - pad, y_max + pad)
+
+# Ticks semaines = entiers
+ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
 ax.set_title("🏋️ Weight Projection", fontsize=14, fontweight="bold", color=PALETTE["deep"], pad=12)
 ax.set_xlabel("Weeks", fontsize=11, color=PALETTE["muted"])
 ax.set_ylabel("Weight (kg)", fontsize=11, color=PALETTE["muted"])
 ax.legend(frameon=False)
 
 st.pyplot(fig)
+
 
 # Explanation
 with st.expander("🧠 How it’s calculated"):
